@@ -5,15 +5,14 @@ import json
 st.set_page_config(layout="wide")
 
 st.title("🎮 PC Gamer Builder Inteligente")
-
-st.markdown("Compare builds completas com preços reais e evolução de upgrade.")
+st.markdown("Compare builds completas com preços reais + estratégia de upgrade.")
 
 # ---------------- PREÇO REAL ----------------
 def buscar_preco(produto):
     try:
         termo = produto.replace(" ", "%20")
-
         url = f"https://api.mercadolibre.com/sites/MLB/search?q={termo}"
+
         response = requests.get(url)
         data = response.json()
 
@@ -63,8 +62,18 @@ def gerar_links(produto):
     }
 
 
-# ---------------- BUILDS ----------------
+# ---------------- PREÇOS BASE ----------------
+preco_base = {
+    "B550M": 800,
+    "16GB DDR4": 650,
+    "32GB DDR4": 1200,
+    "Fonte 500W": 350,
+    "Fonte 600W": 400,
+    "Fonte 650W": 500
+}
 
+
+# ---------------- BUILDS ----------------
 builds = {
     "🟢 Starter (Jogável)": [
         "Ryzen 5 5600G",
@@ -74,26 +83,25 @@ builds = {
     ],
     "⚖️ Intermediário": [
         "Ryzen 5 5600",
-        "RX 6600",
+        "RX 6600 ASRock Challenger",
         "B550M",
         "16GB DDR4",
         "Fonte 600W"
     ],
     "🔥 Top (Longo prazo)": [
-        "Ryzen 5 5600 / 5700X",
-        "RTX 4070",
+        "Ryzen 7 5700X",
+        "RTX 4070 Gigabyte Windforce OC",
         "B550M",
         "32GB DDR4",
         "Fonte 650W"
     ]
 }
 
-# ---------------- UI ----------------
 
+# ---------------- UI ----------------
 if st.button("🔄 Atualizar preços"):
 
     cols = st.columns(3)
-
     comparacao = []
 
     for col, (nome, componentes) in zip(cols, builds.items()):
@@ -104,20 +112,23 @@ if st.button("🔄 Atualizar preços"):
 
             for item in componentes:
 
-                preco = buscar_preco(item)
+                # 🔹 lógica híbrida
+                if "RTX" in item or "RX" in item or "Ryzen" in item:
+                    preco = buscar_preco(item)
+                else:
+                    preco = preco_base.get(item, 0)
 
                 if not preco:
                     preco = "N/A"
 
-                if isinstance(preco, int):
-                total += preco
-
                 st.markdown(f"**{item}**")
                 st.markdown(f"💰 R$ {preco}")
 
-                if preco > 0 and verificar_queda(item, preco):
+                # 🔥 alerta de queda
+                if isinstance(preco, int) and verificar_queda(item, preco):
                     st.success("🔥 Preço caiu!")
 
+                # 🛒 links
                 links = gerar_links(item)
 
                 with st.expander("🛒 Comprar"):
@@ -126,26 +137,33 @@ if st.button("🔄 Atualizar preços"):
 
                 st.markdown("---")
 
+                # 💰 soma total
+                if isinstance(preco, int):
+                    total += preco
+
             st.success(f"💸 Total: R$ {total}")
 
-            comparacao.append({"nome": nome, "preco": total})
+            comparacao.append({
+                "nome": nome,
+                "preco": total
+            })
 
-# ---------------- COMPARAÇÃO ----------------
 
+    # ---------------- COMPARAÇÃO FINAL ----------------
     st.header("📊 Melhor build hoje")
 
-    melhor = min(comparacao, key=lambda x: x["preco"])
+    if comparacao:
+        melhor = min(comparacao, key=lambda x: x["preco"])
+        st.success(f"🏆 Melhor custo hoje: {melhor['nome']} por R$ {melhor['preco']}")
 
-    st.success(f"🏆 Melhor custo hoje: {melhor['nome']} por R$ {melhor['preco']}")
 
 # ---------------- SIDEBAR ----------------
-
-st.sidebar.header("🎯 Estratégia")
+st.sidebar.header("🎯 Estratégia de Upgrade")
 
 st.sidebar.markdown("""
-Comece com Starter  
+🟢 Comece com Starter  
 ⬇  
-Adicione GPU → Intermediário  
+⚖️ Adicione GPU → Intermediário  
 ⬇  
-Upgrade GPU + RAM → Top  
+🔥 Upgrade GPU + RAM → Top  
 """)
