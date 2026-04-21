@@ -11,16 +11,25 @@ st.markdown("Compare builds completas com preços reais e evolução de upgrade.
 # ---------------- PREÇO REAL ----------------
 def buscar_preco(produto):
     try:
-        url = f"https://api.mercadolibre.com/sites/MLB/search?q={produto}"
+        termo = produto.replace(" ", "%20")
+
+        url = f"https://api.mercadolibre.com/sites/MLB/search?q={termo}"
         response = requests.get(url)
         data = response.json()
 
         resultados = data.get("results", [])[:5]
-        precos = [item["price"] for item in resultados if "price" in item]
+
+        precos = []
+
+        for item in resultados:
+            if item.get("price") and item.get("price") > 100:
+                precos.append(item["price"])
 
         if precos:
             return int(sum(precos) / len(precos))
+
         return None
+
     except:
         return None
 
@@ -98,8 +107,9 @@ if st.button("🔄 Atualizar preços"):
                 preco = buscar_preco(item)
 
                 if not preco:
-                    preco = 0
+                    preco = "N/A"
 
+                if isinstance(preco, int):
                 total += preco
 
                 st.markdown(f"**{item}**")
