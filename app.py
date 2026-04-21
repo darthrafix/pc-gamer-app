@@ -1,39 +1,141 @@
 import streamlit as st
-import random
+import requests
+import json
 
 st.set_page_config(layout="wide")
 
-st.title("🎮 PC Gamer Finder (Live)")
+st.title("🎮 PC Gamer Builder Inteligente")
 
-st.markdown("Compare builds, preços e custo-benefício em tempo real.")
+st.markdown("Compare builds completas com preços reais e evolução de upgrade.")
 
-def gerar_dados():
-    return [
-        {"nome": "RTX 4070", "loja": "Kabum", "preco": random.randint(3800, 4500), "score": 9.5},
-        {"nome": "RTX 4060", "loja": "Amazon", "preco": random.randint(2000, 2600), "score": 8.0},
-        {"nome": "RX 6600", "loja": "Pichau", "preco": random.randint(1200, 1600), "score": 6.5}
+# ---------------- PREÇO REAL ----------------
+def buscar_preco(produto):
+    try:
+        url = f"https://api.mercadolibre.com/sites/MLB/search?q={produto}"
+        response = requests.get(url)
+        data = response.json()
+
+        resultados = data.get("results", [])[:5]
+        precos = [item["price"] for item in resultados if "price" in item]
+
+        if precos:
+            return int(sum(precos) / len(precos))
+        return None
+    except:
+        return None
+
+
+# ---------------- HISTÓRICO ----------------
+def verificar_queda(produto, preco_atual):
+    try:
+        with open("historico.json", "r") as f:
+            hist = json.load(f)
+    except:
+        hist = {}
+
+    preco_antigo = hist.get(produto)
+    hist[produto] = preco_atual
+
+    with open("historico.json", "w") as f:
+        json.dump(hist, f)
+
+    return preco_antigo and preco_atual < preco_antigo
+
+
+# ---------------- LINKS ----------------
+def gerar_links(produto):
+    return {
+        "Kabum": f"https://www.kabum.com.br/busca/{produto.replace(' ', '-')}",
+        "Amazon": f"https://www.amazon.com.br/s?k={produto.replace(' ', '+')}",
+        "Pichau": f"https://www.pichau.com.br/search?q={produto}",
+        "Terabyte": f"https://www.terabyteshop.com.br/busca?str={produto}",
+        "Mercado Livre": f"https://lista.mercadolivre.com.br/{produto.replace(' ', '-')}",
+        "Shopee (⚠️)": f"https://shopee.com.br/search?keyword={produto}"
+    }
+
+
+# ---------------- BUILDS ----------------
+
+builds = {
+    "🟢 Starter (Jogável)": [
+        "Ryzen 5 5600G",
+        "B550M",
+        "16GB DDR4",
+        "Fonte 500W"
+    ],
+    "⚖️ Intermediário": [
+        "Ryzen 5 5600",
+        "RX 6600",
+        "B550M",
+        "16GB DDR4",
+        "Fonte 600W"
+    ],
+    "🔥 Top (Longo prazo)": [
+        "Ryzen 5 5600 / 5700X",
+        "RTX 4070",
+        "B550M",
+        "32GB DDR4",
+        "Fonte 650W"
     ]
+}
+
+# ---------------- UI ----------------
 
 if st.button("🔄 Atualizar preços"):
-    dados = gerar_dados()
 
-    st.subheader("📊 Comparação de GPUs")
+    cols = st.columns(3)
 
-    for item in dados:
-        st.markdown(f"""
-        ### {item['nome']}
-        🏪 Loja: {item['loja']}  
-        💰 Preço: R$ {item['preco']}  
-        ⭐ Score: {item['score']}  
-        ---
-        """)
+    comparacao = []
 
-    melhor = max(dados, key=lambda x: x["score"])
-    st.success(f"🏆 Melhor compra hoje: {melhor['nome']} por R$ {melhor['preco']}")
+    for col, (nome, componentes) in zip(cols, builds.items()):
+        with col:
+            st.subheader(nome)
 
-st.sidebar.header("🎯 Build alvo")
+            total = 0
+
+            for item in componentes:
+
+                preco = buscar_preco(item)
+
+                if not preco:
+                    preco = 0
+
+                total += preco
+
+                st.markdown(f"**{item}**")
+                st.markdown(f"💰 R$ {preco}")
+
+                if preco > 0 and verificar_queda(item, preco):
+                    st.success("🔥 Preço caiu!")
+
+                links = gerar_links(item)
+
+                with st.expander("🛒 Comprar"):
+                    for loja, url in links.items():
+                        st.markdown(f"[{loja}]({url})")
+
+                st.markdown("---")
+
+            st.success(f"💸 Total: R$ {total}")
+
+            comparacao.append({"nome": nome, "preco": total})
+
+# ---------------- COMPARAÇÃO ----------------
+
+    st.header("📊 Melhor build hoje")
+
+    melhor = min(comparacao, key=lambda x: x["preco"])
+
+    st.success(f"🏆 Melhor custo hoje: {melhor['nome']} por R$ {melhor['preco']}")
+
+# ---------------- SIDEBAR ----------------
+
+st.sidebar.header("🎯 Estratégia")
+
 st.sidebar.markdown("""
-- Plataforma: AM4  
-- Objetivo: RTX 4070  
-- Upgrade futuro: 32GB RAM  
+Comece com Starter  
+⬇  
+Adicione GPU → Intermediário  
+⬇  
+Upgrade GPU + RAM → Top  
 """)
