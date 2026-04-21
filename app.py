@@ -6,110 +6,74 @@ from statistics import mean
 
 st.set_page_config(layout="wide")
 
-st.title("🎮 PC Gamer Builder Inteligente (v2)")
-st.markdown("Comparação com preço real, score e ranking de custo-benefício.")
+# -------- STYLE (UI MELHORADA) --------
+st.markdown("""
+<style>
+.card {
+    padding: 20px;
+    border-radius: 16px;
+    background: #111;
+    border: 1px solid #222;
+    margin-bottom: 15px;
+}
+.price {
+    font-size: 22px;
+    font-weight: bold;
+}
+.good { color: #00ff9f; }
+.warn { color: #ffd166; }
+.neutral { color: #999; }
+.title {
+    font-size: 28px;
+    font-weight: 700;
+}
+.link-btn {
+    display: inline-block;
+    margin-right: 8px;
+    margin-top: 6px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: #222;
+    border: 1px solid #333;
+    font-size: 12px;
+}
+</style>
+""", unsafe_allow_html=True)
 
-# ---------------- PREÇO REAL (ML + fallback) ----------------
-def buscar_preco_ml(produto):
+st.markdown('<div class="title">🎮 PC Builder Inteligente</div>', unsafe_allow_html=True)
+
+# ---------------- PREÇO ----------------
+def buscar_preco(produto):
     try:
         url = f"https://api.mercadolibre.com/sites/MLB/search?q={produto}"
-        r = requests.get(url)
-        data = r.json()
+        data = requests.get(url).json()
 
-        resultados = data.get("results", [])[:5]
+        precos = [
+            item["price"]
+            for item in data.get("results", [])[:5]
+            if item.get("price") and item["price"] > 100
+        ]
 
-        precos = []
-        for item in resultados:
-            p = item.get("price")
-            if p and p > 100:
-                precos.append(p)
-
-        if precos:
-            return int(sum(precos) / len(precos))
-
-        return None
+        return int(sum(precos)/len(precos)) if precos else None
     except:
         return None
 
 
-def buscar_preco(produto):
-    preco = buscar_preco_ml(produto)
-
-    if preco:
-        return preco
-
-    return None
-
-
-# ---------------- HISTÓRICO ROBUSTO ----------------
-def salvar_historico(produto, preco):
-    try:
-        with open("historico.json", "r") as f:
-            hist = json.load(f)
-    except:
-        hist = {}
-
-    serie = hist.get(produto, [])
-
-    if not isinstance(serie, list):
-        serie = []
-
-    serie.append({"t": int(time.time()), "p": preco})
-
-    hist[produto] = serie[-20:]
-
-    with open("historico.json", "w") as f:
-        json.dump(hist, f)
-
-    return hist[produto]
-
-
-# ---------------- SCORE ----------------
-def score_compra(serie):
-    if len(serie) < 3:
-        return "Neutro", 0
-
-    precos = [p["p"] for p in serie]
-    atual = precos[-1]
-    media = mean(precos)
-
-    score = (media - atual) / media
-
-    if score > 0.08:
-        return "Comprar", score
-    elif score < -0.05:
-        return "Esperar", score
-    else:
-        return "Ok", score
-
-
-# ---------------- FPS ----------------
-def fps_estimado(gpu, jogo):
-    tabela = {
-        "RX 6600": {"Cyberpunk": 50, "GTA": 75, "EA FC": 120},
-        "RTX 4060": {"Cyberpunk": 75, "GTA": 100, "EA FC": 144},
-        "RTX 4070": {"Cyberpunk": 110, "GTA": 130, "EA FC": 180}
-    }
-
-    for k in tabela:
-        if k in gpu:
-            return tabela[k].get(jogo, 60)
-
-    return 40
-
-
-# ---------------- LINKS ----------------
+# ---------------- LINKS (COM SHOPEE) ----------------
 def gerar_links(produto):
+    termo = produto.replace(" ", "%20")
+
     return {
         "Kabum": f"https://www.kabum.com.br/busca/{produto}",
         "Amazon": f"https://www.amazon.com.br/s?k={produto}",
         "Pichau": f"https://www.pichau.com.br/search?q={produto}",
         "Terabyte": f"https://www.terabyteshop.com.br/busca?str={produto}",
-        "Mercado Livre": f"https://lista.mercadolivre.com.br/{produto}"
+        "Mercado Livre": f"https://lista.mercadolivre.com.br/{produto}",
+        "Shopee": f"https://shopee.com.br/search?keyword={termo}"
     }
 
 
-# ---------------- PREÇOS BASE ----------------
+# ---------------- BASE ----------------
 preco_base = {
     "B550M": 800,
     "16GB DDR4": 650,
@@ -146,79 +110,66 @@ builds = {
 
 
 # ---------------- UI ----------------
-if st.button("🔄 Atualizar preços"):
+if st.button("🚀 Analisar builds"):
 
     cols = st.columns(3)
     ranking = []
 
     for col, (nome, itens) in zip(cols, builds.items()):
         with col:
-            st.subheader(nome)
-
             total = 0
-            score_total = 0
+
+            st.markdown(f"### {nome}")
 
             for item in itens:
 
-                if "RTX" in item or "RX" in item or "Ryzen" in item:
+                # preço dinâmico vs base
+                if any(x in item for x in ["RTX", "RX", "Ryzen"]):
                     preco = buscar_preco(item)
                 else:
                     preco = preco_base.get(item)
 
                 if not preco:
-                    preco = 0
-
-                st.markdown(f"**{item}**")
-                st.write(f"💰 R$ {preco}")
-
-                if preco > 0:
-                    serie = salvar_historico(item, preco)
-                    decisao, score = score_compra(serie)
-
-                    score_total += score
-
-                    if decisao == "Comprar":
-                        st.success("🟢 Comprar")
-                    elif decisao == "Esperar":
-                        st.warning("🟡 Esperar")
-                    else:
-                        st.info("🔵 Ok")
-
+                    preco_txt = "N/A"
+                    color = "neutral"
+                else:
+                    preco_txt = f"R$ {preco}"
                     total += preco
+                    color = "good"
 
+                # CARD
+                st.markdown(f"""
+                <div class="card">
+                    <b>{item}</b><br>
+                    <span class="price {color}">{preco_txt}</span>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # LINKS DE COMPRA
                 links = gerar_links(item)
 
-                with st.expander("Comprar"):
+                with st.expander("🛒 Ver opções de compra"):
                     for loja, url in links.items():
-                        st.markdown(f"[{loja}]({url})")
+                        if loja == "Shopee":
+                            st.markdown(f"[{loja}]({url}) ⚠️ verifique vendedor")
+                        else:
+                            st.markdown(f"[{loja}]({url})")
 
-                st.markdown("---")
+            # TOTAL
+            st.markdown(f"""
+            <div class="card">
+                <b>Total</b><br>
+                <span class="price good">R$ {total}</span>
+            </div>
+            """, unsafe_allow_html=True)
 
-            st.success(f"💸 Total: R$ {total}")
+            ranking.append({"nome": nome, "preco": total})
 
-            jogo = st.selectbox(
-                "FPS",
-                ["Cyberpunk", "GTA", "EA FC"],
-                key=nome
-            )
+    # MELHOR BUILD
+    st.markdown("## 🏆 Melhor custo-benefício")
 
-            gpu = [i for i in itens if "RTX" in i or "RX" in i]
-            gpu_nome = gpu[0] if gpu else "Integrada"
+    ranking = [r for r in ranking if r["preco"] > 0]
 
-            fps = fps_estimado(gpu_nome, jogo)
-
-            st.write(f"🎮 FPS: {fps}")
-
-            ranking.append({
-                "nome": nome,
-                "preco": total,
-                "score": score_total
-            })
-
-    # ---------------- RANKING ----------------
-    st.header("🏆 Ranking de custo-benefício")
-
-    ranking.sort(key=lambda x: (x["preco"], -x["score"]))
-
-    for r in ranking:
-        st.write(f"{r['nome']} → R$ {r['preco']}")
+    if ranking:
+        best = min(ranking, key=lambda x: x["preco"])
+        st.success(f"{best['nome']} → R$ {best['preco']}")
