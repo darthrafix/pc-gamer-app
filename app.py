@@ -3,24 +3,42 @@ import requests
 
 st.set_page_config(layout="wide")
 
-st.title("🎮 PC Builder Inteligente (Zoom-like)")
+st.title("🎮 PC Builder Inteligente (PRO)")
 
-# ---------------- BUSCA REAL ----------------
-def buscar_produtos(produto):
+SERP_API_KEY = st.secrets["SERPAPI_KEY"]
+
+# ---------------- SERP API ----------------
+def buscar_serpapi(produto):
+    url = "https://serpapi.com/search.json"
+
+    params = {
+        "engine": "google_shopping",
+        "q": produto,
+        "api_key": SERP_API_KEY,
+        "hl": "pt",
+        "gl": "br"
+    }
+
     try:
-        url = f"https://api.mercadolibre.com/sites/MLB/search?q={produto}"
-        data = requests.get(url).json()
+        response = requests.get(url, params=params)
+        data = response.json()
 
         resultados = []
 
-        for item in data.get("results", [])[:5]:
+        for item in data.get("shopping_results", [])[:10]:
             preco = item.get("price")
 
-            if preco and preco > 100:
+            if preco:
+                try:
+                    preco = float(preco.replace("R$", "").replace(".", "").replace(",", "."))
+                except:
+                    continue
+
                 resultados.append({
                     "titulo": item.get("title"),
-                    "preco": preco,
-                    "link": item.get("permalink")
+                    "preco": int(preco),
+                    "link": item.get("link"),
+                    "fonte": item.get("source")
                 })
 
         return resultados
@@ -29,7 +47,30 @@ def buscar_produtos(produto):
         return []
 
 
-# ---------------- PREÇO BASE ----------------
+# ---------------- INTELIGÊNCIA ----------------
+def analisar_precos(resultados):
+    if not resultados:
+        return None, []
+
+    precos = [r["preco"] for r in resultados]
+    media = sum(precos) / len(precos)
+
+    for r in resultados:
+        r["score"] = (media - r["preco"]) / media
+
+        if r["preco"] < media * 0.85:
+            r["tag"] = "🔥 Promoção"
+        elif r["preco"] < media:
+            r["tag"] = "💰 Bom preço"
+        else:
+            r["tag"] = "😐 Normal"
+
+    resultados = sorted(resultados, key=lambda x: x["preco"])
+
+    return resultados[0], resultados
+
+
+# ---------------- BASE ----------------
 preco_base = {
     "B550M": 800,
     "16GB DDR4": 650,
@@ -50,14 +91,14 @@ builds = {
     },
     "Intermediário": {
         "CPU": "Ryzen 5 5600",
-        "GPU": "RX 6600 ASRock",
+        "GPU": "RX 6600",
         "Placa-mãe": "B550M",
         "RAM": "16GB DDR4",
         "Fonte": "Fonte 600W"
     },
     "Top": {
         "CPU": "Ryzen 7 5700X",
-        "GPU": "RTX 4070 Gigabyte",
+        "GPU": "RTX 4070",
         "Placa-mãe": "B550M",
         "RAM": "32GB DDR4",
         "Fonte": "Fonte 650W"
@@ -66,7 +107,7 @@ builds = {
 
 
 # ---------------- UI ----------------
-if st.button("🔍 Buscar melhores preços"):
+if st.button("🚀 Analisar builds (PRO)"):
 
     cols = st.columns(3)
     ranking = []
@@ -74,48 +115,41 @@ if st.button("🔍 Buscar melhores preços"):
     for col, (nome, componentes) in zip(cols, builds.items()):
         with col:
             st.subheader(nome)
-
             total = 0
 
             for tipo, item in componentes.items():
-
                 st.markdown(f"### {tipo}")
 
-                # 🔥 busca real ou base
                 if tipo in ["CPU", "GPU"]:
-                    resultados = buscar_produtos(item)
+                    resultados = buscar_serpapi(item)
+                    melhor, lista = analisar_precos(resultados)
 
-                    if resultados:
-                        menor = min(r["preco"] for r in resultados)
-                        total += menor
+                    if melhor:
+                        total += melhor["preco"]
 
-                        st.success(f"💰 A partir de R$ {menor}")
+                        st.success(f"💰 R$ {melhor['preco']} — {melhor['tag']}")
+                        st.caption(f"{melhor['fonte']}")
 
-                        # opções
-                        for r in resultados:
-                            st.markdown(f"[🛒 {r['titulo']} - R$ {r['preco']}]({r['link']})")
-
+                        with st.expander("🛒 Ver opções"):
+                            for r in lista:
+                                st.markdown(
+                                    f"[{r['titulo']} - R$ {r['preco']} ({r['tag']})]({r['link']})"
+                                )
                     else:
-                        st.warning("⚠️ preço não encontrado")
+                        st.warning("Sem resultados")
 
                 else:
                     preco = preco_base.get(item, 0)
                     total += preco
-
                     st.info(f"💰 R$ {preco}")
-
-                    st.markdown(f"[🔎 Buscar {item}](https://www.google.com/search?q={item}+preço)")
 
                 st.markdown("---")
 
-            st.success(f"💸 Total estimado: R$ {total}")
+            st.success(f"💸 Total: R$ {total}")
 
             ranking.append({"nome": nome, "preco": total})
 
-    # ---------------- RANKING ----------------
-    st.header("🏆 Melhor build hoje")
-
-    ranking = [r for r in ranking if r["preco"] > 0]
+    st.header("🏆 Melhor build")
 
     if ranking:
         best = min(ranking, key=lambda x: x["preco"])
