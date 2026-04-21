@@ -6,36 +6,42 @@ from statistics import mean
 
 st.set_page_config(layout="wide")
 
-st.title("🎮 PC Gamer Builder Inteligente")
-st.markdown("Compare builds completas com preços reais, histórico e recomendação de compra.")
+st.title("🎮 PC Gamer Builder Inteligente (v2)")
+st.markdown("Comparação com preço real, score e ranking de custo-benefício.")
 
-# ---------------- PREÇO REAL ----------------
-def buscar_preco(produto):
+# ---------------- PREÇO REAL (ML + fallback) ----------------
+def buscar_preco_ml(produto):
     try:
-        termo = produto.replace(" ", "%20")
-        url = f"https://api.mercadolibre.com/sites/MLB/search?q={termo}"
-
-        response = requests.get(url)
-        data = response.json()
+        url = f"https://api.mercadolibre.com/sites/MLB/search?q={produto}"
+        r = requests.get(url)
+        data = r.json()
 
         resultados = data.get("results", [])[:5]
 
         precos = []
-
         for item in resultados:
-            if item.get("price") and item.get("price") > 100:
-                precos.append(item["price"])
+            p = item.get("price")
+            if p and p > 100:
+                precos.append(p)
 
         if precos:
             return int(sum(precos) / len(precos))
 
         return None
-
     except:
         return None
 
 
-# ---------------- HISTÓRICO ----------------
+def buscar_preco(produto):
+    preco = buscar_preco_ml(produto)
+
+    if preco:
+        return preco
+
+    return None
+
+
+# ---------------- HISTÓRICO ROBUSTO ----------------
 def salvar_historico(produto, preco):
     try:
         with open("historico.json", "r") as f:
@@ -44,6 +50,10 @@ def salvar_historico(produto, preco):
         hist = {}
 
     serie = hist.get(produto, [])
+
+    if not isinstance(serie, list):
+        serie = []
+
     serie.append({"t": int(time.time()), "p": preco})
 
     hist[produto] = serie[-20:]
@@ -54,42 +64,36 @@ def salvar_historico(produto, preco):
     return hist[produto]
 
 
-def detectar_queda(serie):
-    if len(serie) < 2:
-        return False
-    return serie[-1]["p"] < serie[-2]["p"]
-
-
 # ---------------- SCORE ----------------
 def score_compra(serie):
     if len(serie) < 3:
-        return "Neutro", "Pouco histórico"
+        return "Neutro", 0
 
     precos = [p["p"] for p in serie]
     atual = precos[-1]
     media = mean(precos)
 
-    delta = (media - atual) / media
+    score = (media - atual) / media
 
-    if delta > 0.08:
-        return "Comprar", "Preço abaixo da média"
-    elif delta < -0.05:
-        return "Esperar", "Preço acima da média"
+    if score > 0.08:
+        return "Comprar", score
+    elif score < -0.05:
+        return "Esperar", score
     else:
-        return "Ok", "Dentro da média"
+        return "Ok", score
 
 
 # ---------------- FPS ----------------
 def fps_estimado(gpu, jogo):
-    base = {
+    tabela = {
         "RX 6600": {"Cyberpunk": 50, "GTA": 75, "EA FC": 120},
         "RTX 4060": {"Cyberpunk": 75, "GTA": 100, "EA FC": 144},
-        "RTX 4070": {"Cyberpunk": 110, "GTA": 130, "EA FC": 180},
+        "RTX 4070": {"Cyberpunk": 110, "GTA": 130, "EA FC": 180}
     }
 
-    for k in base:
+    for k in tabela:
         if k in gpu:
-            return base[k].get(jogo, 60)
+            return tabela[k].get(jogo, 60)
 
     return 40
 
@@ -97,12 +101,11 @@ def fps_estimado(gpu, jogo):
 # ---------------- LINKS ----------------
 def gerar_links(produto):
     return {
-        "Kabum": f"https://www.kabum.com.br/busca/{produto.replace(' ', '-')}",
-        "Amazon": f"https://www.amazon.com.br/s?k={produto.replace(' ', '+')}",
+        "Kabum": f"https://www.kabum.com.br/busca/{produto}",
+        "Amazon": f"https://www.amazon.com.br/s?k={produto}",
         "Pichau": f"https://www.pichau.com.br/search?q={produto}",
         "Terabyte": f"https://www.terabyteshop.com.br/busca?str={produto}",
-        "Mercado Livre": f"https://lista.mercadolivre.com.br/{produto.replace(' ', '-')}",
-        "Shopee (⚠️)": f"https://shopee.com.br/search?keyword={produto}"
+        "Mercado Livre": f"https://lista.mercadolivre.com.br/{produto}"
     }
 
 
@@ -119,22 +122,22 @@ preco_base = {
 
 # ---------------- BUILDS ----------------
 builds = {
-    "🟢 Starter (Jogável)": [
+    "Starter": [
         "Ryzen 5 5600G",
         "B550M",
         "16GB DDR4",
         "Fonte 500W"
     ],
-    "⚖️ Intermediário": [
+    "Intermediário": [
         "Ryzen 5 5600",
-        "RX 6600 ASRock Challenger",
+        "RX 6600 ASRock",
         "B550M",
         "16GB DDR4",
         "Fonte 600W"
     ],
-    "🔥 Top (Longo prazo)": [
+    "Top": [
         "Ryzen 7 5700X",
-        "RTX 4070 Gigabyte Windforce OC",
+        "RTX 4070 Gigabyte",
         "B550M",
         "32GB DDR4",
         "Fonte 650W"
@@ -146,93 +149,76 @@ builds = {
 if st.button("🔄 Atualizar preços"):
 
     cols = st.columns(3)
-    comparacao = []
+    ranking = []
 
-    for col, (nome, componentes) in zip(cols, builds.items()):
+    for col, (nome, itens) in zip(cols, builds.items()):
         with col:
             st.subheader(nome)
 
             total = 0
+            score_total = 0
 
-            for item in componentes:
+            for item in itens:
 
-                # 🔹 lógica híbrida
                 if "RTX" in item or "RX" in item or "Ryzen" in item:
                     preco = buscar_preco(item)
                 else:
-                    preco = preco_base.get(item, 0)
+                    preco = preco_base.get(item)
 
                 if not preco:
-                    preco = "N/A"
+                    preco = 0
 
                 st.markdown(f"**{item}**")
-                st.markdown(f"💰 R$ {preco}")
+                st.write(f"💰 R$ {preco}")
 
-                # 📉 histórico + score
-                if isinstance(preco, int):
+                if preco > 0:
                     serie = salvar_historico(item, preco)
+                    decisao, score = score_compra(serie)
 
-                    if detectar_queda(serie):
-                        st.success("🔥 Preço caiu!")
-
-                    decisao, motivo = score_compra(serie)
+                    score_total += score
 
                     if decisao == "Comprar":
-                        st.success(f"🟢 {decisao}: {motivo}")
+                        st.success("🟢 Comprar")
                     elif decisao == "Esperar":
-                        st.warning(f"🟡 {decisao}: {motivo}")
+                        st.warning("🟡 Esperar")
                     else:
-                        st.info(f"🔵 {decisao}: {motivo}")
+                        st.info("🔵 Ok")
 
-                # 🛒 links
+                    total += preco
+
                 links = gerar_links(item)
 
-                with st.expander("🛒 Comprar"):
+                with st.expander("Comprar"):
                     for loja, url in links.items():
                         st.markdown(f"[{loja}]({url})")
 
                 st.markdown("---")
 
-                # 💰 soma
-                if isinstance(preco, int):
-                    total += preco
-
             st.success(f"💸 Total: R$ {total}")
 
-            # 🎮 FPS
             jogo = st.selectbox(
-                "Simular FPS",
+                "FPS",
                 ["Cyberpunk", "GTA", "EA FC"],
-                key=f"fps_{nome}"
+                key=nome
             )
 
-            gpu_build = [c for c in componentes if "RTX" in c or "RX" in c]
-            gpu_nome = gpu_build[0] if gpu_build else "Integrada"
+            gpu = [i for i in itens if "RTX" in i or "RX" in i]
+            gpu_nome = gpu[0] if gpu else "Integrada"
 
             fps = fps_estimado(gpu_nome, jogo)
 
-            st.markdown(f"🎮 FPS estimado ({jogo}): **{fps} FPS**")
+            st.write(f"🎮 FPS: {fps}")
 
-            comparacao.append({
+            ranking.append({
                 "nome": nome,
-                "preco": total
+                "preco": total,
+                "score": score_total
             })
 
-    # ---------------- MELHOR BUILD ----------------
-    st.header("📊 Melhor build hoje")
+    # ---------------- RANKING ----------------
+    st.header("🏆 Ranking de custo-benefício")
 
-    if comparacao:
-        melhor = min(comparacao, key=lambda x: x["preco"])
-        st.success(f"🏆 Melhor custo hoje: {melhor['nome']} por R$ {melhor['preco']}")
+    ranking.sort(key=lambda x: (x["preco"], -x["score"]))
 
-
-# ---------------- SIDEBAR ----------------
-st.sidebar.header("🎯 Estratégia de Upgrade")
-
-st.sidebar.markdown("""
-🟢 Comece com Starter  
-⬇  
-⚖️ Adicione GPU → Intermediário  
-⬇  
-🔥 Upgrade GPU + RAM → Top  
-""")
+    for r in ranking:
+        st.write(f"{r['nome']} → R$ {r['preco']}")
