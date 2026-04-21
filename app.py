@@ -26,6 +26,10 @@ def buscar_produtos(produto):
             response = requests.get(url, params=params, timeout=10)
             data = response.json()
 
+            # DEBUG
+            if "error" in data:
+                st.warning(f"SerpAPI erro: {data['error']}")
+
             for item in data.get("shopping_results", [])[:5]:
                 preco = item.get("price")
 
@@ -37,17 +41,21 @@ def buscar_produtos(produto):
                             "link": item.get("link", "#"),
                             "fonte": item.get("source", "Loja")
                         })
-                    except:
-                        pass
-        except:
-            pass
+                    except Exception as e:
+                        st.warning(f"Erro parse preço: {e}")
 
-    # 🔹 FALLBACK (Mercado Livre)
+        except Exception as e:
+            st.error(f"Erro SerpAPI: {e}")
+
+    # 🔹 MERCADO LIVRE (forçado)
     if not resultados:
         try:
             url = f"https://api.mercadolibre.com/sites/MLB/search?q={produto}"
             response = requests.get(url, timeout=10)
             data = response.json()
+
+            if "results" not in data:
+                st.warning(f"ML resposta estranha: {data}")
 
             for item in data.get("results", [])[:5]:
                 preco = item.get("price")
@@ -58,8 +66,9 @@ def buscar_produtos(produto):
                         "link": item.get("permalink", "#"),
                         "fonte": "Mercado Livre"
                     })
-        except:
-            pass
+
+        except Exception as e:
+            st.error(f"Erro Mercado Livre: {e}")
 
     return sorted(resultados, key=lambda x: x["preco"])
 
@@ -105,7 +114,6 @@ if st.button("🚀 Buscar preços"):
 
                 resultados = buscar_produtos(produto)
 
-                # 🔥 GARANTE QUE SEMPRE TEM DADO
                 if not resultados:
                     resultados = [{
                         "preco": 0,
@@ -116,64 +124,23 @@ if st.button("🚀 Buscar preços"):
                 melhor = resultados[0]
                 total += melhor["preco"]
 
-                # 🔥 lista de lojas
                 lojas_html = ""
 
                 for r in resultados:
                     lojas_html += f"""
-                    <div style="
-                        display:flex;
-                        justify-content:space-between;
-                        padding:6px 0;
-                        border-bottom:1px solid #eee;
-                        font-size:13px;
-                    ">
+                    <div style="display:flex;justify-content:space-between;padding:6px 0;">
                         <span>{r["fonte"]}</span>
-                        <span>
-                            R$ {r["preco"]}
-                            <a href="{r["link"]}" target="_blank">🔗</a>
-                        </span>
+                        <span>R$ {r["preco"]}</span>
                     </div>
                     """
 
-                # 🔥 CARD LIMPO (CLARO, IGUAL COMPARADOR)
-                card_html = f"""
-                <div style="
-                    background:white;
-                    border-radius:14px;
-                    padding:16px;
-                    margin-bottom:12px;
-                    border:1px solid #ddd;
-                    box-shadow:0 2px 6px rgba(0,0,0,0.05);
-                ">
-
-                    <div style="font-size:12px;color:#888;">
-                        {tipo.upper()}
-                    </div>
-
-                    <div style="font-size:18px;font-weight:700;">
-                        {produto}
-                    </div>
-
-                    <div style="
-                        margin-top:10px;
-                        background:#e6f4ea;
-                        color:#137333;
-                        padding:8px;
-                        border-radius:8px;
-                        font-weight:600;
-                        font-size:13px;
-                    ">
-                        💰 Melhor preço: R$ {melhor["preco"]} ({melhor["fonte"]})
-                    </div>
-
-                    <div style="margin-top:10px;">
-                        {lojas_html}
-                    </div>
-
+                st.markdown(f"""
+                <div style="background:white;padding:12px;border-radius:12px;margin-bottom:10px;">
+                    <b>{tipo}</b><br>
+                    {produto}<br><br>
+                    💰 R$ {melhor["preco"]} ({melhor["fonte"]})
+                    {lojas_html}
                 </div>
-                """
-
-                st.markdown(card_html, unsafe_allow_html=True)
+                """, unsafe_allow_html=True)
 
             st.success(f"💸 Total: R$ {total}")
