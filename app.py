@@ -1,11 +1,13 @@
 import streamlit as st
 import requests
 import json
+import time
+from statistics import mean
 
 st.set_page_config(layout="wide")
 
 st.title("🎮 PC Gamer Builder Inteligente")
-st.markdown("Compare builds completas com preços reais + estratégia de upgrade.")
+st.markdown("Compare builds completas com preços reais, histórico e recomendação de compra.")
 
 # ---------------- PREÇO REAL ----------------
 def buscar_preco(produto):
@@ -34,20 +36,62 @@ def buscar_preco(produto):
 
 
 # ---------------- HISTÓRICO ----------------
-def verificar_queda(produto, preco_atual):
+def salvar_historico(produto, preco):
     try:
         with open("historico.json", "r") as f:
             hist = json.load(f)
     except:
         hist = {}
 
-    preco_antigo = hist.get(produto)
-    hist[produto] = preco_atual
+    serie = hist.get(produto, [])
+    serie.append({"t": int(time.time()), "p": preco})
+
+    hist[produto] = serie[-20:]
 
     with open("historico.json", "w") as f:
         json.dump(hist, f)
 
-    return preco_antigo and preco_atual < preco_antigo
+    return hist[produto]
+
+
+def detectar_queda(serie):
+    if len(serie) < 2:
+        return False
+    return serie[-1]["p"] < serie[-2]["p"]
+
+
+# ---------------- SCORE ----------------
+def score_compra(serie):
+    if len(serie) < 3:
+        return "Neutro", "Pouco histórico"
+
+    precos = [p["p"] for p in serie]
+    atual = precos[-1]
+    media = mean(precos)
+
+    delta = (media - atual) / media
+
+    if delta > 0.08:
+        return "Comprar", "Preço abaixo da média"
+    elif delta < -0.05:
+        return "Esperar", "Preço acima da média"
+    else:
+        return "Ok", "Dentro da média"
+
+
+# ---------------- FPS ----------------
+def fps_estimado(gpu, jogo):
+    base = {
+        "RX 6600": {"Cyberpunk": 50, "GTA": 75, "EA FC": 120},
+        "RTX 4060": {"Cyberpunk": 75, "GTA": 100, "EA FC": 144},
+        "RTX 4070": {"Cyberpunk": 110, "GTA": 130, "EA FC": 180},
+    }
+
+    for k in base:
+        if k in gpu:
+            return base[k].get(jogo, 60)
+
+    return 40
 
 
 # ---------------- LINKS ----------------
@@ -124,9 +168,21 @@ if st.button("🔄 Atualizar preços"):
                 st.markdown(f"**{item}**")
                 st.markdown(f"💰 R$ {preco}")
 
-                # 🔥 alerta de queda
-                if isinstance(preco, int) and verificar_queda(item, preco):
-                    st.success("🔥 Preço caiu!")
+                # 📉 histórico + score
+                if isinstance(preco, int):
+                    serie = salvar_historico(item, preco)
+
+                    if detectar_queda(serie):
+                        st.success("🔥 Preço caiu!")
+
+                    decisao, motivo = score_compra(serie)
+
+                    if decisao == "Comprar":
+                        st.success(f"🟢 {decisao}: {motivo}")
+                    elif decisao == "Esperar":
+                        st.warning(f"🟡 {decisao}: {motivo}")
+                    else:
+                        st.info(f"🔵 {decisao}: {motivo}")
 
                 # 🛒 links
                 links = gerar_links(item)
@@ -137,19 +193,32 @@ if st.button("🔄 Atualizar preços"):
 
                 st.markdown("---")
 
-                # 💰 soma total
+                # 💰 soma
                 if isinstance(preco, int):
                     total += preco
 
             st.success(f"💸 Total: R$ {total}")
+
+            # 🎮 FPS
+            jogo = st.selectbox(
+                "Simular FPS",
+                ["Cyberpunk", "GTA", "EA FC"],
+                key=f"fps_{nome}"
+            )
+
+            gpu_build = [c for c in componentes if "RTX" in c or "RX" in c]
+            gpu_nome = gpu_build[0] if gpu_build else "Integrada"
+
+            fps = fps_estimado(gpu_nome, jogo)
+
+            st.markdown(f"🎮 FPS estimado ({jogo}): **{fps} FPS**")
 
             comparacao.append({
                 "nome": nome,
                 "preco": total
             })
 
-
-    # ---------------- COMPARAÇÃO FINAL ----------------
+    # ---------------- MELHOR BUILD ----------------
     st.header("📊 Melhor build hoje")
 
     if comparacao:
