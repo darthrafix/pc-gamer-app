@@ -3,100 +3,84 @@ import requests
 
 st.set_page_config(layout="wide")
 
-st.title("🎮 Monte seu PC Gamer")
-st.caption("Compare builds e encontre os melhores preços")
+st.title("🖥️ Comparador de Peças PC Gamer")
 
 SERP_API_KEY = st.secrets.get("SERPAPI_KEY")
 
 # ---------------- BUSCA ----------------
 def buscar_produtos(produto):
-    if not SERP_API_KEY:
-        return []
+    resultados = []
 
-    try:
-        url = "https://serpapi.com/search.json"
+    # 🔹 SERPAPI
+    if SERP_API_KEY:
+        try:
+            url = "https://serpapi.com/search.json"
 
-        params = {
-            "engine": "google_shopping",
-            "q": produto,
-            "api_key": SERP_API_KEY,
-            "hl": "pt",
-            "gl": "br"
-        }
+            params = {
+                "engine": "google_shopping",
+                "q": produto,
+                "api_key": SERP_API_KEY,
+                "hl": "pt",
+                "gl": "br"
+            }
 
-        response = requests.get(url, params=params, timeout=10)
-        data = response.json()
+            data = requests.get(url, params=params).json()
 
-        resultados = []
+            for item in data.get("shopping_results", [])[:5]:
+                preco = item.get("price")
 
-        for item in data.get("shopping_results", [])[:6]:
-            preco = item.get("price")
+                if preco:
+                    try:
+                        preco = float(preco.replace("R$", "").replace(".", "").replace(",", "."))
+                        resultados.append({
+                            "preco": int(preco),
+                            "link": item.get("link"),
+                            "fonte": item.get("source")
+                        })
+                    except:
+                        pass
+        except:
+            pass
 
-            if not preco:
-                continue
+    # 🔹 FALLBACK ML
+    if not resultados:
+        try:
+            url = f"https://api.mercadolibre.com/sites/MLB/search?q={produto}"
+            data = requests.get(url).json()
 
-            try:
-                preco = float(
-                    preco.replace("R$", "")
-                    .replace(".", "")
-                    .replace(",", ".")
-                )
-            except:
-                continue
+            for item in data.get("results", [])[:5]:
+                preco = item.get("price")
 
-            resultados.append({
-                "titulo": item.get("title", "Produto"),
-                "preco": int(preco),
-                "link": item.get("link", "#"),
-                "fonte": item.get("source", "Loja")
-            })
+                if preco:
+                    resultados.append({
+                        "preco": int(preco),
+                        "link": item.get("permalink"),
+                        "fonte": "Mercado Livre"
+                    })
+        except:
+            pass
 
-        return sorted(resultados, key=lambda x: x["preco"])
-
-    except:
-        return []
-
-
-# ---------------- FALLBACK ----------------
-preco_base = {
-    "Ryzen 5 5600": 800,
-    "Ryzen 7 5700X": 1200,
-    "RTX 4060 8GB": 2200,
-    "RTX 4070": 3800,
-    "RX 6600": 1400,
-    "B550M": 700,
-    "16GB DDR4": 400,
-    "32GB DDR4": 800,
-    "Fonte 500W": 300,
-    "Fonte 600W": 400,
-    "Fonte 650W": 500
-}
-
-def fallback_preco(produto):
-    for key in preco_base:
-        if key in produto:
-            return preco_base[key]
-    return 0
+    return sorted(resultados, key=lambda x: x["preco"])
 
 
 # ---------------- BUILDS ----------------
 builds = {
     "🟢 Básico": {
-        "CPU": "Ryzen 5 5600",
+        "Processador": "Ryzen 5 5600",
         "GPU": "RX 6600",
         "RAM": "16GB DDR4",
         "Placa-mãe": "B550M",
         "Fonte": "Fonte 500W"
     },
     "🟡 Intermediário": {
-        "CPU": "Ryzen 5 5600",
-        "GPU": "RTX 4060 8GB",
+        "Processador": "Ryzen 5 5600",
+        "GPU": "RTX 4060",
         "RAM": "16GB DDR4",
         "Placa-mãe": "B550M",
         "Fonte": "Fonte 600W"
     },
     "🔴 Top": {
-        "CPU": "Ryzen 7 5700X",
+        "Processador": "Ryzen 7 5700X",
         "GPU": "RTX 4070",
         "RAM": "32GB DDR4",
         "Placa-mãe": "B550M",
@@ -106,14 +90,13 @@ builds = {
 
 
 # ---------------- UI ----------------
-if st.button("🚀 Analisar builds"):
+if st.button("🚀 Buscar preços"):
 
     cols = st.columns(3)
 
-    for col, (nome_build, componentes) in zip(cols, builds.items()):
+    for col, (nome, componentes) in zip(cols, builds.items()):
         with col:
-
-            st.subheader(nome_build)
+            st.subheader(nome)
 
             total = 0
 
@@ -121,54 +104,63 @@ if st.button("🚀 Analisar builds"):
 
                 resultados = buscar_produtos(produto)
 
-                # 🔥 fallback se API falhar
                 if not resultados:
-                    preco = fallback_preco(produto)
-
-                    st.markdown(f"""
-                    <div style="background:#fff3cd;padding:12px;border-radius:10px;margin-bottom:10px;">
-                        <b>{tipo}</b><br>
-                        {produto}<br>
-                        💰 R$ {preco} (estimado)
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                    total += preco
                     continue
 
                 melhor = resultados[0]
                 total += melhor["preco"]
 
+                # 🔥 lista lojas
                 lojas_html = ""
 
-                for i, r in enumerate(resultados):
-                    destaque = "background:#ecfdf5;" if i == 0 else ""
-
+                for r in resultados:
                     lojas_html += f"""
-                    <div style="display:flex;justify-content:space-between;padding:8px;{destaque}">
-                        <div>{r["fonte"]}</div>
-                        <div>
-                            R$ {r["preco"]}
-                            <a href="{r["link"]}" target="_blank">🔗</a>
-                        </div>
+                    <div style="
+                        display:flex;
+                        justify-content:space-between;
+                        padding:6px 0;
+                        color:#d1d5db;
+                    ">
+                        <span>{r["fonte"]}</span>
+                        <span>R$ {r["preco"]}</span>
                     </div>
                     """
 
-                card_html = f"""
-                <div style="background:white;border:1px solid #ddd;border-radius:12px;margin-bottom:10px;">
-                    <div style="padding:10px;background:#f5f5f5;">
-                        <b>{tipo}</b><br>
+                # 🔥 CARD PADRÃO (igual seu exemplo)
+                st.markdown(f"""
+                <div style="
+                    background:linear-gradient(135deg,#1f2937,#111827);
+                    border-radius:16px;
+                    padding:16px;
+                    margin-bottom:12px;
+                    border:1px solid #374151;
+                ">
+
+                    <div style="color:#9ca3af;font-size:12px;">
+                        {tipo.upper()}
+                    </div>
+
+                    <div style="color:white;font-size:18px;font-weight:700;">
                         {produto}
                     </div>
 
-                    <div style="padding:10px;">
-                        💰 Melhor: R$ {melhor["preco"]}
+                    <div style="
+                        margin-top:10px;
+                        background:#065f46;
+                        color:#6ee7b7;
+                        padding:8px;
+                        border-radius:10px;
+                        font-weight:600;
+                        font-size:13px;
+                    ">
+                        💰 Melhor preço: R$ {melhor["preco"]} ({melhor["fonte"]})
                     </div>
 
-                    {lojas_html}
-                </div>
-                """
+                    <div style="margin-top:10px;">
+                        {lojas_html}
+                    </div>
 
-                st.markdown(card_html, unsafe_allow_html=True)
+                </div>
+                """, unsafe_allow_html=True)
 
             st.success(f"💸 Total: R$ {total}")
