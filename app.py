@@ -15,7 +15,6 @@ def buscar_produtos(produto):
     if SERP_API_KEY:
         try:
             url = "https://serpapi.com/search.json"
-
             params = {
                 "engine": "google_shopping",
                 "q": produto,
@@ -24,7 +23,8 @@ def buscar_produtos(produto):
                 "gl": "br"
             }
 
-            data = requests.get(url, params=params).json()
+            response = requests.get(url, params=params, timeout=10)
+            data = response.json()
 
             for item in data.get("shopping_results", [])[:5]:
                 preco = item.get("price")
@@ -34,19 +34,20 @@ def buscar_produtos(produto):
                         preco = float(preco.replace("R$", "").replace(".", "").replace(",", "."))
                         resultados.append({
                             "preco": int(preco),
-                            "link": item.get("link"),
-                            "fonte": item.get("source")
+                            "link": item.get("link", "#"),
+                            "fonte": item.get("source", "Loja")
                         })
                     except:
                         pass
         except:
             pass
 
-    # 🔹 FALLBACK ML
+    # 🔹 FALLBACK (Mercado Livre)
     if not resultados:
         try:
             url = f"https://api.mercadolibre.com/sites/MLB/search?q={produto}"
-            data = requests.get(url).json()
+            response = requests.get(url, timeout=10)
+            data = response.json()
 
             for item in data.get("results", [])[:5]:
                 preco = item.get("price")
@@ -54,7 +55,7 @@ def buscar_produtos(produto):
                 if preco:
                     resultados.append({
                         "preco": int(preco),
-                        "link": item.get("permalink"),
+                        "link": item.get("permalink", "#"),
                         "fonte": "Mercado Livre"
                     })
         except:
@@ -104,13 +105,18 @@ if st.button("🚀 Buscar preços"):
 
                 resultados = buscar_produtos(produto)
 
+                # 🔥 GARANTE QUE SEMPRE TEM DADO
                 if not resultados:
-                    continue
+                    resultados = [{
+                        "preco": 0,
+                        "link": "#",
+                        "fonte": "Sem dados"
+                    }]
 
                 melhor = resultados[0]
                 total += melhor["preco"]
 
-                # 🔥 lista lojas
+                # 🔥 lista de lojas
                 lojas_html = ""
 
                 for r in resultados:
@@ -119,37 +125,42 @@ if st.button("🚀 Buscar preços"):
                         display:flex;
                         justify-content:space-between;
                         padding:6px 0;
-                        color:#d1d5db;
+                        border-bottom:1px solid #eee;
+                        font-size:13px;
                     ">
                         <span>{r["fonte"]}</span>
-                        <span>R$ {r["preco"]}</span>
+                        <span>
+                            R$ {r["preco"]}
+                            <a href="{r["link"]}" target="_blank">🔗</a>
+                        </span>
                     </div>
                     """
 
-                # 🔥 CARD PADRÃO (igual seu exemplo)
-                st.markdown(f"""
+                # 🔥 CARD LIMPO (CLARO, IGUAL COMPARADOR)
+                card_html = f"""
                 <div style="
-                    background:linear-gradient(135deg,#1f2937,#111827);
-                    border-radius:16px;
+                    background:white;
+                    border-radius:14px;
                     padding:16px;
                     margin-bottom:12px;
-                    border:1px solid #374151;
+                    border:1px solid #ddd;
+                    box-shadow:0 2px 6px rgba(0,0,0,0.05);
                 ">
 
-                    <div style="color:#9ca3af;font-size:12px;">
+                    <div style="font-size:12px;color:#888;">
                         {tipo.upper()}
                     </div>
 
-                    <div style="color:white;font-size:18px;font-weight:700;">
+                    <div style="font-size:18px;font-weight:700;">
                         {produto}
                     </div>
 
                     <div style="
                         margin-top:10px;
-                        background:#065f46;
-                        color:#6ee7b7;
+                        background:#e6f4ea;
+                        color:#137333;
                         padding:8px;
-                        border-radius:10px;
+                        border-radius:8px;
                         font-weight:600;
                         font-size:13px;
                     ">
@@ -161,6 +172,8 @@ if st.button("🚀 Buscar preços"):
                     </div>
 
                 </div>
-                """, unsafe_allow_html=True)
+                """
+
+                st.markdown(card_html, unsafe_allow_html=True)
 
             st.success(f"💸 Total: R$ {total}")
